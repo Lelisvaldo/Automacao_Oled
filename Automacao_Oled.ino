@@ -23,12 +23,10 @@ bool sJetCool = false;  //Estado do JetColl
 
 void controleAr();
 void contLampadaC();
-
 void temperatura();
-bool pinBotaoRetencao();
-
 void dispOledArOFF();
 void dispOledArON();
+
 //Controle do AR
 void ligarAr();
 void deslAr();
