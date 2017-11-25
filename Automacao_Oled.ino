@@ -11,20 +11,24 @@ IRrecv irrecv(11);
 decode_results results;
 
 byte rele = 12;         //Pino do RELE
-int irValue = 0;        //Esse cara nos que criamos para limpar o valor do IR
-byte tempAr = 18;
+int  irValue = 0;       //Esse cara nos que criamos para limpar o valor do IR
+byte tempAr = 18;       //Temperatura Minima do Ar
 byte modAr = 1;
 byte vFan = 1;
-byte temperature = 0;
-bool sLamp = false; //Estado da Lampada
-bool sAr = false; //Estado do Ar
-bool sSwing = false; //Estado do Swing
-bool sJetCool = false; //Estado do Swing
+byte temperature = 0; 
+bool sLampOnled = false;//Estado da Lampada no Display
+bool sAr = false;       //Estado do Ar
+bool sSwing = false;    //Estado do Swing
+bool sJetCool = false;  //Estado do JetColl
 
-void controle();
-void contLampada();
+void controleAr();
+void contLampadaC();
+
 void temperatura();
+bool pinBotaoRetencao();
 
+void dispOledArOFF();
+void dispOledArON();
 //Controle do AR
 void ligarAr();
 void deslAr();
@@ -391,58 +395,54 @@ const unsigned char lampada[48] PROGMEM = {
 
 void setup(){
   pinMode(rele, OUTPUT);  //Pino do rele
+  digitalWrite(rele, LOW);
   Serial.begin(9600);     //Abre comunicacao da porta serial  
   irrecv.enableIRIn();    //inicia a comunicacaodo receptor IR
-  irrecv.blink13(true);
-  //digitalWrite(rele, LOW);
+  //irrecv.blink13(true);
 }
-void draw(void) {
-  switch(sAr) {
-    case false: dispOledArOFF();break;
-    case true: dispOledArON();break;
-  }
-}
+
 void loop(){
   /*MONITORA IR*/
   if(irrecv.decode(&results)) {
     Serial.println(results.value, DEC);
     irValue = results.value;
     irrecv.resume();
-   }
-  contLampada();
-  controle();
+  }
+  contLampadaC();
+  controleAr();
   temperatura();
   temperaturaAr();
   irValue = 0;
   // picture loop  
   u8g.firstPage();  
-  do {
-    draw();
-  } while( u8g.nextPage() );
+  do {draw();}
+  while(u8g.nextPage());
+}
+
+//DESENHA A TELA ON/OFF
+void draw(void) {
+  switch(sAr) {
+    case false: dispOledArOFF();break;
+    case true: dispOledArON();break;
+  }
 }
 void dispOledArOFF(){
-  //           x, y,temp 
-  dispOledGenOFF(55,50,temperature);
   u8g.drawBitmapP(8,17,7,35,sum);
   //u8g.drawBitmapP(1,17,7,35,cloud);
   u8g.drawBitmapP(108,16,3,16,casa);
-  if(sLamp){
-    u8g.drawBitmapP(108,34,3,16,lampada);
-  }
-}
-//                    x,     y,     temp
-void dispOledGenOFF(byte x,byte y,byte value){
   u8g.setFont(u8g_font_fub30n);
-  u8g.setPrintPos(x,y);
-  u8g.print(value);
+  u8g.setPrintPos(55,50);
+  u8g.print(temperature);
   u8g.setFont(u8g_font_6x10);
   char s[2] = " ";  
   s[0] = 176;
-  u8g.drawStr(x+40,y-26,s);
-  u8g.setPrintPos(x+46,y-26);
+  u8g.drawStr(95,24,s);
+  u8g.setPrintPos(101,24);
   u8g.print("C");
+  if(sLampOnled){
+    u8g.drawBitmapP(108,34,3,16,lampada);
+  }
 }
-
 void dispOledArON(){
   u8g.drawBitmapP(1,17,7,35,cloud);
   //TEMP AR
@@ -465,7 +465,7 @@ void dispOledArON(){
   u8g.setPrintPos(102,42);
   u8g.print("C");
   u8g.drawBitmapP(108,34,3,16,casa);
-  if(sLamp){u8g.drawBitmapP(108,50,3,16,lampada);}
+  if(sLampOnled){u8g.drawBitmapP(108,50,3,16,lampada);}
   
   if(modAr == 1){u8g.drawBitmapP(0,0,3,16,mAr);}
   else if(modAr == 2){u8g.drawBitmapP(10,0,3,16,mUmidade);}
@@ -494,19 +494,21 @@ void temperaturaAr() {
   static unsigned long delayMilis = millis();
   if ((millis() - delayMilis) > 1000){delayMilis = millis();}
 }
-//CONTROLA A LAMPADA
-void contLampada(){
+//CONTROLA A LAMPADA PELO CONTROLE
+void contLampadaC(){
   if(irValue == 12){
     digitalWrite(rele, HIGH);
-    sLamp = false;
+    sLampOnled = false;
+    
   }
   if(irValue == 2060){
     digitalWrite(rele, LOW);
-    sLamp = true;
+    sLampOnled = true;
     }
 }
+
 //CONTROLA O AR
-void controle(){
+void controleAr(){
 //  ON
   if(irValue == 31){
     ligarAr();
