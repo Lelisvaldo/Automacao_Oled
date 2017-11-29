@@ -10,20 +10,31 @@ IRsend irsend;
 IRrecv irrecv(11);
 decode_results results;
 
-byte rele = 12;         //Pino do RELE
+#define pinBotao 13     //Pino do BOTAO
+#define rele   12       //Pino do RELE
 int  irValue = 0;       //Esse cara nos que criamos para limpar o valor do IR
 byte tempAr = 18;       //Temperatura Minima do Ar
 byte modAr = 1;
 byte vFan = 1;
 byte temperature = 0; 
-bool sLampOnled = false;//Estado da Lampada no Display
+bool sLampOnled = true;//Estado da Lampada no Display
 bool sAr = false;       //Estado do Ar
 bool sSwing = false;    //Estado do Swing
 bool sJetCool = false;  //Estado do JetColl
+bool estadoRele = false;
+bool estadoBotao = false; 
+bool estadoControle = false; 
+
+static bool estadoBotaoAnt; 
+bool pinBotaoRetencao();
+bool contLampadaC();
+
+
+
 
 void controleAr();
-void contLampadaC();
-void temperatura();
+void temperaturaAmb();
+void temperaturaAr();
 void dispOledArOFF();
 void dispOledArON();
 
@@ -43,7 +54,6 @@ void modoAr();
 void modoUmidade();
 void energySavingOn();
 void energySavingOff();
-void temperaturaAr();
 
 //const unsigned int bLigarAr[59] PROGMEM = {8392, 4228, 552, 1696, 528, 568, 552, 572, 524, 600, 528, 1692, 528, 592, 532, 568, 556, 568, 524, 596, 532, 568, 552, 572, 528, 592, 532, 568, 552, 572, 524, 596, 532, 568, 552, 572, 524, 596, 528, 1696, 524, 1696, 552, 572, 524, 1696, 552, 572, 528, 1692, 556, 1688, 528, 572, 556, 568, 524, 596, 528};
 //const unsigned int bDeslAr[59] PROGMEM = {8416, 4228, 528, 1692, 552, 572, 528, 596, 524, 572, 556, 1692, 528, 568, 580, 544, 528, 596, 528, 1692, 528, 1692, 552, 572, 556, 568, 552, 544, 580, 544, 528, 596, 556, 540, 552, 572, 552, 572, 528, 568, 552, 572, 556, 568, 524, 1696, 524, 600, 552, 1668, 528, 596, 552, 544, 552, 572, 552, 1668, 552};
@@ -392,23 +402,37 @@ const unsigned char lampada[48] PROGMEM = {
 };
 
 void setup(){
-  pinMode(rele, OUTPUT);  //Pino do rele
-  digitalWrite(rele, LOW);
   Serial.begin(9600);     //Abre comunicacao da porta serial  
   irrecv.enableIRIn();    //inicia a comunicacaodo receptor IR
+  pinMode(pinBotao, INPUT_PULLUP);
+  pinMode(rele, OUTPUT);
   //irrecv.blink13(true);
 }
 
 void loop(){
   /*MONITORA IR*/
-  if(irrecv.decode(&results)) {
-    Serial.println(results.value, DEC);
-    irValue = results.value;
-    irrecv.resume();
+  static unsigned long delayMilis = millis();
+  if ((millis() - delayMilis) > 200){
+    
+      if(irrecv.decode(&results)) {
+        Serial.println(results.value, DEC);
+        irValue = results.value;
+        irrecv.resume();
+        Serial.println(pinBotaoRetencao());
+      }
+      if(estadoBotao != pinBotaoRetencao()){
+        Serial.println("botao");
+        alternaRele();
+      }
+      else if(estadoControle != contLampadaC()){
+        Serial.println("controle");
+        alternaRele();
+      }
+  
+  delayMilis = millis();
   }
-  contLampadaC();
   controleAr();
-  temperatura();
+  temperaturaAmb();
   temperaturaAr();
   irValue = 0;
   // picture loop  
@@ -416,6 +440,7 @@ void loop(){
   do {draw();}
   while(u8g.nextPage());
 }
+
 
 //DESENHA A TELA ON/OFF
 void draw(void) {
@@ -480,7 +505,7 @@ void dispOledArON(){
 }
 
 //VERIFICA A TEMPERATURA
-void temperatura() {
+void temperaturaAmb() {
   static unsigned long delayMilis = millis();
   if ((millis() - delayMilis) > 1000){
     temperature = temp.getTemp();
@@ -492,17 +517,50 @@ void temperaturaAr() {
   static unsigned long delayMilis = millis();
   if ((millis() - delayMilis) > 1000){delayMilis = millis();}
 }
-//CONTROLA A LAMPADA PELO CONTROLE
-void contLampadaC(){
-  if(irValue == 12){
+
+//ACIONA RELE
+void alternaRele(){
+  estadoRele = !estadoRele;
+  if ( estadoRele == true) {
     digitalWrite(rele, HIGH);
+    estadoBotao = true;
+    estadoControle = true;
+    estadoBotaoAnt = true;
     sLampOnled = false;
-    
-  }
-  if(irValue == 2060){
+  } else {
     digitalWrite(rele, LOW);
+    estadoBotao = false;
+    estadoControle = false;
+    estadoBotaoAnt = false;
     sLampOnled = true;
-    }
+  }
+
+}
+
+//CONTROLA A LAMPADA PELO CONTROLE
+bool contLampadaC(){
+  if(irValue == 12 || irValue == 2060){
+    irValue = 0;
+    return !estadoControle;
+  }
+    return estadoControle;
+}
+//CONTROLA BOTAO/RETENCAO
+bool pinBotaoRetencao() {
+   #define tempoDebounce 200 //(tempo para eliminar o efeito Bounce EM MILISEGUNDOS)
+
+   static bool estadoRet = true;
+   static unsigned long delayBotao = 0;
+   bool leituraBotao = 1;
+
+   if ( (millis() - delayBotao) > tempoDebounce ) {
+       leituraBotao = digitalRead(pinBotao);
+       if ( leituraBotao == 0 ) {
+          delayBotao = millis();
+          return !estadoBotao;
+       }
+   }
+   return estadoBotao;
 }
 
 //CONTROLA O AR
@@ -615,6 +673,7 @@ void deslAr(){
 }
 void tempArMais(){
   static unsigned long delayMilis = millis();
+  //const unsigned int bTempArMais[59] PROGMEM = {8412, 4232, 580, 1664, 552, 544, 580, 544, 556, 568, 556, 1664, 556, 568, 552, 544, 580, 544, 556, 568, 556, 540, 584, 540, 552, 572, 556, 1664, 552, 572, 556, 540, 580, 544, 556, 1664, 584, 1664, 552, 544, 584, 1664, 556, 540, 576, 1672, 552, 544, 580, 1668, 552, 1668, 556, 568, 548, 1672, 552, 572, 552};
   if ((millis() - delayMilis) > 500){
     irsend.sendRaw(bTempArMais, 59, 38);
     irrecv.enableIRIn();
@@ -623,6 +682,7 @@ void tempArMais(){
 }
 void tempArMenos(){
   static unsigned long delayMilis = millis();
+  //const unsigned int bTempArMenos[59] PROGMEM = {8392, 4224, 556, 1668, 552, 568, 556, 544, 580, 540, 556, 1668, 576, 544, 552, 572, 556, 544, 580, 540, 556, 568, 556, 544, 580, 540, 556, 1664, 580, 544, 552, 572, 552, 548, 580, 1664, 552, 1668, 552, 572, 556, 540, 584, 540, 556, 1664, 584, 540, 556, 1664, 580, 1668, 552, 544, 580, 544, 556, 1664, 580};
   if ((millis() - delayMilis) > 500){
     irsend.sendRaw(bTempArMenos, 59, 38);
     irrecv.enableIRIn();
@@ -631,6 +691,7 @@ void tempArMenos(){
 }
 void vFan1(){
   static unsigned long delayMilis = millis();
+  //const unsigned int bVFan1[59] PROGMEM = {8416, 4204, 552, 1668, 552, 572, 552, 544, 576, 548, 524, 1696, 604, 520, 552, 572, 552, 548, 572, 548, 552, 572, 552, 544, 584, 540, 552, 1668, 576, 548, 552, 572, 552, 548, 572, 548, 552, 572, 552, 1668, 552, 1668, 580, 544, 552, 572, 552, 544, 576, 548, 576, 1648, 552, 568, 552, 1672, 576, 1668, 552};
   if ((millis() - delayMilis) > 500){
     irsend.sendRaw(bVFan1, 59, 38);
     irrecv.enableIRIn();
@@ -639,6 +700,7 @@ void vFan1(){
 }
 void vFan2(){
   static unsigned long delayMilis = millis();
+  //const unsigned int bVFan2[59] PROGMEM = {8416, 4204, 552, 1668, 552, 572, 552, 544, 576, 548, 524, 1696, 604, 520, 552, 572, 552, 548, 572, 548, 552, 572, 552, 544, 584, 540, 552, 1668, 576, 548, 552, 572, 552, 548, 572, 548, 552, 572, 552, 1668, 552, 1668, 580, 544, 552, 572, 552, 544, 576, 548, 576, 1648, 552, 568, 552, 1672, 576, 1668, 552};
   if ((millis() - delayMilis) > 500){
     irsend.sendRaw(bVFan2, 59, 38);
     irrecv.enableIRIn();
@@ -647,6 +709,7 @@ void vFan2(){
 }
 void vFan3(){
   static unsigned long delayMilis = millis();
+  //const unsigned int bVFan3[59] PROGMEM = {8416, 4204, 552, 1668, 552, 572, 552, 544, 576, 548, 524, 1696, 604, 520, 552, 572, 552, 548, 572, 548, 552, 572, 552, 544, 584, 540, 552, 1668, 576, 548, 552, 572, 552, 548, 572, 548, 552, 572, 552, 1668, 552, 1668, 580, 544, 552, 572, 552, 544, 576, 548, 576, 1648, 552, 568, 552, 1672, 576, 1668, 552};
   if ((millis() - delayMilis) > 500){
     irsend.sendRaw(bVFan3, 59, 38);
     irrecv.enableIRIn();
@@ -655,6 +718,7 @@ void vFan3(){
 }
 void vFan4(){
   static unsigned long delayMilis = millis();
+  //const unsigned int bVFan4[59] PROGMEM = {8440, 4228, 548, 1676, 572, 548, 552, 572, 552, 548, 576, 1668, 552, 548, 576, 544, 548, 576, 552, 548, 572, 548, 552, 572, 552, 548, 552, 1692, 552, 548, 568, 552, 552, 572, 528, 572, 576, 544, 552, 1644, 604, 1668, 552, 548, 576, 1668, 552, 548, 576, 1668, 552, 548, 576, 548, 548, 572, 552, 548, 576};
   if ((millis() - delayMilis) > 500){
     irsend.sendRaw(bVFan4, 59, 38);
     irrecv.enableIRIn();
@@ -663,6 +727,7 @@ void vFan4(){
 }
 void swingOnOff(){
   static unsigned long delayMilis = millis();
+  //const unsigned int bSwingOn[59] PROGMEM = {8340, 4252, 528, 1692, 556, 568, 528, 596, 528, 572, 552, 1692, 532, 564, 552, 572, 532, 592, 528, 568, 552, 572, 524, 600, 528, 1692, 528, 596, 528, 568, 556, 568, 528, 596, 528, 568, 552, 572, 524, 600, 528, 568, 548, 576, 524, 600, 528, 568, 552, 572, 528, 596, 528, 568, 552, 572, 528, 1692, 556};
   if ((millis() - delayMilis) > 500){
     irsend.sendRaw(bSwingOn, 59, 38);
     irrecv.enableIRIn();
@@ -671,6 +736,7 @@ void swingOnOff(){
 }
 void jetCoolOn(){
   static unsigned long delayMilis = millis();
+  //const unsigned int bJetCoolOn[59] PROGMEM = {8408, 4264, 516, 1708, 540, 580, 516, 604, 524, 576, 540, 1704, 524, 576, 540, 580, 524, 600, 520, 580, 544, 576, 520, 604, 520, 1700, 520, 604, 524, 572, 548, 576, 524, 600, 512, 584, 548, 576, 520, 604, 520, 576, 544, 1704, 520, 576, 548, 576, 520, 604, 524, 1696, 516, 608, 524, 572, 548, 1700, 520};
   if ((millis() - delayMilis) > 500){
     irsend.sendRaw(bJetCoolOn, 59, 38);
     irrecv.enableIRIn();
@@ -679,6 +745,7 @@ void jetCoolOn(){
 }
 void jetCoolOff(){
   static unsigned long delayMilis = millis();
+  //const unsigned int bJetCoolOff[59] PROGMEM = {8392, 4252, 524, 1700, 540, 580, 528, 596, 520, 576, 548, 1700, 528, 568, 556, 568, 528, 596, 528, 568, 556, 568, 524, 600, 524, 572, 556, 1692, 520, 576, 552, 572, 524, 600, 524, 572, 556, 568, 524, 1696, 556, 1692, 528, 568, 552, 1696, 524, 572, 540, 584, 524, 1696, 556, 1692, 528, 1692, 532, 1688, 556};
   if ((millis() - delayMilis) > 500){
     irsend.sendRaw(bJetCoolOff, 59, 38);
     irrecv.enableIRIn();
@@ -687,6 +754,7 @@ void jetCoolOff(){
 }
 void modoAr(){
   static unsigned long delayMilis = millis();
+  //const unsigned int bModoAr[59] PROGMEM = {8412, 4232, 552, 1668, 576, 548, 552, 572, 552, 544, 580, 1668, 552, 544, 580, 544, 576, 548, 552, 544, 572, 552, 552, 572, 552, 544, 580, 1668, 552, 544, 584, 540, 552, 572, 552, 544, 580, 544, 552, 1668, 580, 1668, 576, 496, 612, 1660, 576, 520, 580, 1668, 552, 544, 576, 548, 580, 544, 552, 548, 576};
   if ((millis() - delayMilis) > 500){
     irsend.sendRaw(bModoAr, 59, 38);
     irrecv.enableIRIn();
@@ -695,6 +763,7 @@ void modoAr(){
 }
 void modoUmidade(){
   static unsigned long delayMilis = millis();
+  //const unsigned int bModoUmidade[59] PROGMEM = {8392, 4228, 576, 1672, 544, 552, 576, 548, 548, 576, 576, 1644, 552, 572, 552, 544, 576, 548, 548, 576, 548, 548, 576, 548, 552, 572, 552, 1668, 552, 572, 548, 548, 572, 1676, 548, 1672, 548, 576, 548, 548, 576, 548, 552, 572, 544, 552, 576, 1672, 548, 548, 576, 548, 552, 572, 548, 1672, 548, 1672, 576};
   if ((millis() - delayMilis) > 500){
     irsend.sendRaw(bModoUmidade, 59, 38);
     irrecv.enableIRIn();
@@ -703,6 +772,7 @@ void modoUmidade(){
 }
 void energySavingOn(){
   static unsigned long delayMilis = millis();
+  //const unsigned int bEnergySavingOn[59] PROGMEM = {8416, 4256, 528, 1692, 528, 596, 528, 568, 552, 572, 528, 1692, 556, 568, 528, 596, 528, 568, 556, 568, 524, 600, 528, 568, 552, 572, 524, 1696, 552, 572, 528, 596, 524, 572, 556, 568, 528, 1692, 556, 568, 520, 600, 532, 568, 548, 1700, 524, 572, 556, 568, 524, 596, 528, 572, 552, 572, 528, 592, 532};
   if ((millis() - delayMilis) > 500){
     irsend.sendRaw(bEnergySavingOn, 59, 38);
     irrecv.enableIRIn();
@@ -711,10 +781,10 @@ void energySavingOn(){
 }
 void energySavingOff(){
   static unsigned long delayMilis = millis();
+  //const unsigned int bEnergySavingOff[59] PROGMEM = {8440, 4204, 576, 1668, 556, 568, 556, 544, 580, 540, 556, 1668, 576, 544, 556, 568, 556, 544, 572, 1672, 552, 1668, 556, 568, 556, 544, 576, 544, 556, 568, 556, 540, 576, 548, 556, 568, 552, 544, 580, 544, 556, 568, 556, 1664, 556, 568, 556, 540, 580, 1668, 556, 540, 580, 1668, 556, 540, 580, 1668, 556};
   if ((millis() - delayMilis) > 500){
     irsend.sendRaw(bEnergySavingOff, 59, 38);
     irrecv.enableIRIn();
     delayMilis = millis();
   }
 }
-
